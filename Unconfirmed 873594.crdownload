@@ -1,0 +1,654 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+
+
+# In[2]:
+
+
+import io
+get_ipython().run_line_magic('cd', '"C:\\Users\\G VAISHALI\\Desktop\\New folder"')
+
+
+# In[3]:
+
+
+get_ipython().system('pip install pyarrow')
+
+
+# In[4]:
+
+
+# When Data is in very Large Size it will be sent as Parquet File. 
+greenttaxi=pd.read_parquet("green_tripdata_2022-06.parquet")
+
+
+# In[5]:
+
+
+greenttaxi.head()
+
+
+# In[6]:
+
+
+greenttaxi.info()
+
+
+# In[7]:
+
+
+greenttaxi.isnull().sum().sort_values(ascending=False)
+
+
+# In[8]:
+
+
+greenttaxi=greenttaxi.drop('ehail_fee',axis=1) # Complete Column is Null
+# axis=1 refers to Columns
+# axis=0 refers to Rows
+
+
+# In[9]:
+
+
+greenttaxi.trip_type.value_counts(dropna=False)
+
+
+# In[10]:
+
+
+# Filling with Class 1.0 as it is most frequent
+greenttaxi.trip_type=greenttaxi.trip_type.fillna(1.0)
+
+
+# In[11]:
+
+
+greenttaxi.congestion_surcharge.describe()
+
+
+# In[12]:
+
+
+# Filling with Median assuming not all trips will have congestion surchage
+greenttaxi.congestion_surcharge=greenttaxi.congestion_surcharge.fillna(0.0)
+
+
+# In[13]:
+
+
+greenttaxi.store_and_fwd_flag.value_counts(dropna=False)
+
+
+# In[14]:
+
+
+greenttaxi.store_and_fwd_flag=greenttaxi.store_and_fwd_flag.fillna('N')
+
+
+# In[15]:
+
+
+greenttaxi.payment_type.value_counts(dropna=False)
+
+
+# In[16]:
+
+
+greenttaxi.payment_type=greenttaxi.payment_type.fillna(1.0)
+
+
+# In[17]:
+
+
+greenttaxi.RatecodeID.value_counts(dropna=False)
+
+
+# In[18]:
+
+
+greenttaxi.RatecodeID=greenttaxi.RatecodeID.fillna(1.0)
+
+
+# In[19]:
+
+
+greenttaxi.passenger_count.describe()
+
+
+# In[20]:
+
+
+greenttaxi.passenger_count=greenttaxi.passenger_count.fillna(
+    greenttaxi.passenger_count.median())
+
+
+# In[21]:
+
+
+greenttaxi[['lpep_pickup_datetime', 'lpep_dropoff_datetime']].head()
+
+
+# In[22]:
+
+
+# Extract hour from datetime
+greenttaxi['hour']=greenttaxi.lpep_dropoff_datetime.dt.hour
+
+
+# In[23]:
+
+
+greenttaxi.hour.value_counts()
+
+
+# In[24]:
+
+
+# Extract weekday from date
+greenttaxi['weekday']=greenttaxi.lpep_dropoff_datetime.dt.weekday
+
+
+# In[25]:
+
+
+greenttaxi.weekday.value_counts()
+
+
+# In[26]:
+
+
+# Create a new variable called trip_time
+greenttaxi['trip_time']=(greenttaxi.lpep_dropoff_datetime-
+                         greenttaxi.lpep_pickup_datetime)
+
+
+# In[27]:
+
+
+greenttaxi.trip_time=greenttaxi.trip_time.dt.total_seconds()
+
+
+# In[28]:
+
+
+greenttaxi.trip_time=greenttaxi.trip_time/60
+
+
+# In[29]:
+
+
+greenttaxi.trip_time.describe()
+
+
+# In[30]:
+
+
+univardf=greenttaxi[['lpep_pickup_datetime']]
+
+
+# In[31]:
+
+
+univardf=univardf.lpep_pickup_datetime.sort_values()
+
+
+# In[32]:
+
+
+univardf=univardf.drop([27140,2941,2408,2449,17086])
+
+
+# In[33]:
+
+
+univardf=pd.DataFrame(univardf)
+
+
+# In[34]:
+
+
+univardf['trips']=1
+
+
+# In[35]:
+
+
+univardf.lpep_pickup_datetime=pd.to_datetime(univardf.lpep_pickup_datetime,
+                                            errors="coerce")
+
+
+# In[36]:
+
+
+univardf=univardf.resample("60Min",on='lpep_pickup_datetime').sum()
+
+
+# In[37]:
+
+
+univardf.plot()
+
+
+# In[38]:
+
+
+univardf.describe()
+
+
+# In[39]:
+
+
+# Augmented Dickey Fuller Test of Stationarity
+from statsmodels.tsa.stattools import adfuller
+
+
+# In[40]:
+
+
+adfuller(univardf) 
+# Since p-value=0.00018 is less than 0.05, Reject Null
+# Null - Unit Root Present or Data not Stationary
+
+
+# In[41]:
+
+
+from statsmodels.tsa.seasonal import seasonal_decompose
+
+
+# In[42]:
+
+
+seasonal_decompose(univardf).plot()
+
+
+# In[44]:
+
+
+from statsmodels.tsa.arima.model import ARIMA
+
+
+# In[45]:
+
+
+greentaxiarima=ARIMA(univardf,order=(3,0,1))
+
+
+# In[46]:
+
+
+greentaxiarima=greentaxiarima.fit()
+
+
+# In[47]:
+
+
+greentaxiarima.summary()
+
+
+# In[48]:
+
+
+taxiforecast=greentaxiarima.predict(h=500)
+
+
+# In[49]:
+
+
+taxiforecast.plot()
+
+
+# In[50]:
+
+
+# greentaxi - Hypothesis tests - groupby() - mean, Split Data, Import Test
+# Conduct Test and Interpret based on p-value
+# 1) Test Null Average total_amount of different trip_type equal
+# 2) Test Null Average total_amount of different payment_type equal
+# 3) Test Null No Association between trip_type and payment_type
+
+
+# In[51]:
+
+
+greenttaxi.total_amount.groupby(greenttaxi.trip_type).mean()
+
+
+# In[52]:
+
+
+trip1=greenttaxi[greenttaxi.trip_type==1.0]
+trip2=greenttaxi[greenttaxi.trip_type==2.0]
+
+
+# In[53]:
+
+
+from scipy.stats import ttest_ind
+
+
+# In[54]:
+
+
+ttest_ind(trip1.total_amount,trip2.total_amount,equal_var=False)
+# Since  pvalue=1.9400485137117117e-148 is less than 0.05, Reject Null
+
+
+# In[55]:
+
+
+greenttaxi.total_amount.groupby(greenttaxi.payment_type).mean()
+
+
+# In[56]:
+
+
+p1=greenttaxi[greenttaxi.payment_type==1.0]
+p2=greenttaxi[greenttaxi.payment_type==2.0]
+p3=greenttaxi[greenttaxi.payment_type==3.0]
+p4=greenttaxi[greenttaxi.payment_type==4.0]
+p5=greenttaxi[greenttaxi.payment_type==5.0]
+
+
+# In[57]:
+
+
+from scipy.stats import f_oneway
+
+
+# In[58]:
+
+
+f_oneway(p1.total_amount,p2.total_amount,p3.total_amount,p4.total_amount,
+        p5.total_amount)
+# Since pvalue=0.0 is less than 0.05, Reject Null
+
+
+# In[59]:
+
+
+pd.crosstab(greenttaxi.trip_type,greenttaxi.payment_type)
+
+
+# In[60]:
+
+
+from scipy.stats import chi2_contingency
+
+
+# In[61]:
+
+
+chi2_contingency(pd.crosstab(greenttaxi.trip_type,greenttaxi.payment_type))
+# Since p-value=4.608747566959131e-34 is less than 0.05, Reject Null
+
+
+# In[62]:
+
+
+greentaxiarima.plot_diagnostics()
+
+
+# In[63]:
+
+
+taxiforecast=taxiarima.predict(n_periods=100)
+
+
+# In[64]:
+
+
+pd.concat([univardf,taxiforecast],axis=1).plot()
+
+
+# In[65]:
+
+
+pd.concat([univardf,greentaxiarima.fittedvalues],axis=1).plot()
+
+
+# In[67]:
+
+
+greenttaxi.columns
+
+
+# In[71]:
+
+
+greenttaxi=greenttaxi.drop(['lpep_pickup_datetime', 'lpep_dropoff_datetime','PULocationID', 'DOLocationID'],axis=1)
+
+
+# In[73]:
+
+
+numericcols=greenttaxi[['passenger_count', 'trip_distance', 'fare_amount', 'extra', 'mta_tax',
+       'tip_amount', 'tolls_amount', 'improvement_surcharge', 'total_amount','congestion_surcharge','tip_amount']]
+
+
+# In[74]:
+
+
+objectcols=greenttaxi.drop(['passenger_count', 'trip_distance', 'fare_amount', 'extra', 'mta_tax',
+       'tip_amount', 'tolls_amount', 'improvement_surcharge', 'total_amount','congestion_surcharge','tip_amount'],axis=1)
+
+
+# In[75]:
+
+
+print(numericcols.shape)
+print(objectcols.shape)
+
+
+# In[76]:
+
+
+objectcols.columns
+
+
+# In[77]:
+
+
+#dummyencode objectcols
+objectcolsdumy=pd.get_dummies(objectcols,columns=['VendorID', 'store_and_fwd_flag', 'RatecodeID', 'payment_type',
+       'trip_type', 'hour', 'weekday'])
+
+
+# In[78]:
+
+
+objectcolsdumy.shape
+
+
+# In[79]:
+
+
+#check for multicollinearity in numericcols
+numericcols.corr()
+
+
+# In[80]:
+
+
+numericcols=numericcols.drop('fare_amount',axis=1)
+
+
+# In[81]:
+
+
+greenttaxi_clean=pd.concat([numericcols,objectcolsdumy],axis=1)
+
+
+# In[82]:
+
+
+y=greenttaxi_clean.total_amount
+x=greenttaxi_clean.drop('total_amount',axis=1)
+
+
+# In[83]:
+
+
+y.plot(kind='hist')
+
+
+# In[84]:
+
+
+y.plot(kind='box',vert=False)
+
+
+# In[85]:
+
+
+y.plot(kind='density')
+
+
+# In[92]:
+
+
+np.log(y).plot(kind='box',vert=False)
+
+
+# In[ ]:
+
+
+
+
+
+# In[88]:
+
+
+from sklearn.linear_model import LinearRegression
+
+
+# In[89]:
+
+
+reg=LinearRegression()
+
+
+# In[90]:
+
+
+regmodel=reg.fit(x,y)
+
+
+# In[91]:
+
+
+regmodel.score(x,y)
+
+
+# In[93]:
+
+
+from sklearn.neural_network import MLPRegressor
+
+
+# In[94]:
+
+
+nn=MLPRegressor(hidden_layer_sizes=(100,50,20))
+
+
+# In[95]:
+
+
+nnmodel=nn.fit(x,y)
+
+
+# In[96]:
+
+
+nnmodel.score(x,y)
+
+
+# In[97]:
+
+
+from sklearn.model_selection import cross_val_score
+
+
+# In[98]:
+
+
+cross_val_scoreval_score(nn,x,y)
+
+
+# In[103]:
+
+
+from sklearn.tree import DecisionTreeRegressor
+
+
+# In[104]:
+
+
+tree=DecisionTreeRegressor()
+
+
+# In[105]:
+
+
+treemodel=tree.fit(x,y)
+
+
+# In[106]:
+
+
+treemodel.score(x,y)
+
+
+# In[108]:
+
+
+cross_val_score(tree,x,y,cv=4)
+
+
+# In[109]:
+
+
+from sklearn.tree import plot_tree
+
+
+# In[110]:
+
+
+plt.figure(figsize=(15,10))
+plot_tree(treemodel,max_depth=3,feature_names=x.columns)
+plt.show()
+
+
+# In[111]:
+
+
+from sklearn.tree import export_text
+
+
+# In[112]:
+
+
+print(export_text(treemodel,feature_names=x.columns.to_list()))
+
+
+# In[115]:
+
+
+pd.DataFrame(np.round(treemodel.feature_importances_,2),x.columns).sort_values(by=0,ascending=False)
+
+
+# In[ ]:
+
+
+
+
